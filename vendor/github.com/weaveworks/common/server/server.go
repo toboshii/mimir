@@ -16,7 +16,7 @@ import (
 	"github.com/opentracing/opentracing-go"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	node_https "github.com/prometheus/node_exporter/https"
+	"github.com/prometheus/exporter-toolkit/web"
 	"golang.org/x/net/context"
 	"golang.org/x/net/netutil"
 	"google.golang.org/grpc"
@@ -62,11 +62,12 @@ type Config struct {
 	GRPCListenPort    int    `yaml:"grpc_listen_port"`
 	GRPCConnLimit     int    `yaml:"grpc_listen_conn_limit"`
 
-	HTTPTLSConfig node_https.TLSStruct `yaml:"http_tls_config"`
-	GRPCTLSConfig node_https.TLSStruct `yaml:"grpc_tls_config"`
+	HTTPTLSConfig web.TLSStruct `yaml:"http_tls_config"`
+	GRPCTLSConfig web.TLSStruct `yaml:"grpc_tls_config"`
 
-	RegisterInstrumentation bool `yaml:"register_instrumentation"`
-	ExcludeRequestInLog     bool `yaml:"-"`
+	RegisterInstrumentation  bool `yaml:"register_instrumentation"`
+	ExcludeRequestInLog      bool `yaml:"-"`
+	DisableRequestSuccessLog bool `yaml:"-"`
 
 	ServerGracefulShutdownTimeout time.Duration `yaml:"graceful_shutdown_timeout"`
 	HTTPServerReadTimeout         time.Duration `yaml:"http_server_read_timeout"`
@@ -91,12 +92,13 @@ type Config struct {
 	GRPCServerMinTimeBetweenPings      time.Duration `yaml:"grpc_server_min_time_between_pings"`
 	GRPCServerPingWithoutStreamAllowed bool          `yaml:"grpc_server_ping_without_stream_allowed"`
 
-	LogFormat          logging.Format    `yaml:"log_format"`
-	LogLevel           logging.Level     `yaml:"log_level"`
-	Log                logging.Interface `yaml:"-"`
-	LogSourceIPs       bool              `yaml:"log_source_ips_enabled"`
-	LogSourceIPsHeader string            `yaml:"log_source_ips_header"`
-	LogSourceIPsRegex  string            `yaml:"log_source_ips_regex"`
+	LogFormat             logging.Format    `yaml:"log_format"`
+	LogLevel              logging.Level     `yaml:"log_level"`
+	Log                   logging.Interface `yaml:"-"`
+	LogSourceIPs          bool              `yaml:"log_source_ips_enabled"`
+	LogSourceIPsHeader    string            `yaml:"log_source_ips_header"`
+	LogSourceIPsRegex     string            `yaml:"log_source_ips_regex"`
+	LogRequestAtInfoLevel bool              `yaml:"log_request_at_info_level_enabled"`
 
 	// If not set, default signal handler is used.
 	SignalHandler SignalHandler `yaml:"-"`
@@ -149,6 +151,7 @@ func (cfg *Config) RegisterFlags(f *flag.FlagSet) {
 	f.BoolVar(&cfg.LogSourceIPs, "server.log-source-ips-enabled", false, "Optionally log the source IPs.")
 	f.StringVar(&cfg.LogSourceIPsHeader, "server.log-source-ips-header", "", "Header field storing the source IPs. Only used if server.log-source-ips-enabled is true. If not set the default Forwarded, X-Real-IP and X-Forwarded-For headers are used")
 	f.StringVar(&cfg.LogSourceIPsRegex, "server.log-source-ips-regex", "", "Regex for matching the source IPs. Only used if server.log-source-ips-enabled is true. If not set the default Forwarded, X-Real-IP and X-Forwarded-For headers are used")
+	f.BoolVar(&cfg.LogRequestAtInfoLevel, "server.log-request-at-info-level-enabled", false, "Optionally log requests at info level instead of debug level.")
 }
 
 // Server wraps a HTTP and gRPC server, and some common initialization.
@@ -235,16 +238,16 @@ func New(cfg Config) (*Server, error) {
 	// Setup TLS
 	var httpTLSConfig *tls.Config
 	if len(cfg.HTTPTLSConfig.TLSCertPath) > 0 && len(cfg.HTTPTLSConfig.TLSKeyPath) > 0 {
-		// Note: ConfigToTLSConfig from prometheus/node_exporter is awaiting security review.
-		httpTLSConfig, err = node_https.ConfigToTLSConfig(&cfg.HTTPTLSConfig)
+		// Note: ConfigToTLSConfig from prometheus/exporter-toolkit is awaiting security review.
+		httpTLSConfig, err = web.ConfigToTLSConfig(&cfg.HTTPTLSConfig)
 		if err != nil {
 			return nil, fmt.Errorf("error generating http tls config: %v", err)
 		}
 	}
 	var grpcTLSConfig *tls.Config
 	if len(cfg.GRPCTLSConfig.TLSCertPath) > 0 && len(cfg.GRPCTLSConfig.TLSKeyPath) > 0 {
-		// Note: ConfigToTLSConfig from prometheus/node_exporter is awaiting security review.
-		grpcTLSConfig, err = node_https.ConfigToTLSConfig(&cfg.GRPCTLSConfig)
+		// Note: ConfigToTLSConfig from prometheus/exporter-toolkit is awaiting security review.
+		grpcTLSConfig, err = web.ConfigToTLSConfig(&cfg.GRPCTLSConfig)
 		if err != nil {
 			return nil, fmt.Errorf("error generating grpc tls config: %v", err)
 		}
@@ -286,8 +289,9 @@ func New(cfg Config) (*Server, error) {
 
 	// Setup gRPC server
 	serverLog := middleware.GRPCServerLog{
-		WithRequest: !cfg.ExcludeRequestInLog,
-		Log:         log,
+		Log:                      log,
+		WithRequest:              !cfg.ExcludeRequestInLog,
+		DisableRequestSuccessLog: cfg.DisableRequestSuccessLog,
 	}
 	grpcMiddleware := []grpc.UnaryServerInterceptor{
 		serverLog.UnaryServerInterceptor,
@@ -367,8 +371,9 @@ func New(cfg Config) (*Server, error) {
 			SourceIPs:    sourceIPs,
 		},
 		middleware.Log{
-			Log:       log,
-			SourceIPs: sourceIPs,
+			Log:                   log,
+			SourceIPs:             sourceIPs,
+			LogRequestAtInfoLevel: cfg.LogRequestAtInfoLevel,
 		},
 		middleware.Instrument{
 			RouteMatcher:     router,

@@ -270,6 +270,16 @@ http_tls_config:
   # CLI flag: -server.http-tls-ca-path
   [client_ca_file: <string> | default = ""]
 
+  [cipher_suites: <list of int> | default = ]
+
+  [curve_preferences: <list of int> | default = ]
+
+  [min_version: <int> | default = ]
+
+  [max_version: <int> | default = ]
+
+  [prefer_server_cipher_suites: <boolean> | default = ]
+
 grpc_tls_config:
   # (advanced) GRPC TLS server cert path.
   # CLI flag: -server.grpc-tls-cert-path
@@ -286,6 +296,16 @@ grpc_tls_config:
   # (advanced) GRPC TLS Client CA path.
   # CLI flag: -server.grpc-tls-ca-path
   [client_ca_file: <string> | default = ""]
+
+  [cipher_suites: <list of int> | default = ]
+
+  [curve_preferences: <list of int> | default = ]
+
+  [min_version: <int> | default = ]
+
+  [max_version: <int> | default = ]
+
+  [prefer_server_cipher_suites: <boolean> | default = ]
 
 # (advanced) Register the intrumentation handlers (/metrics etc).
 # CLI flag: -server.register-instrumentation
@@ -382,6 +402,10 @@ grpc_tls_config:
 # X-Real-IP and X-Forwarded-For headers are used
 # CLI flag: -server.log-source-ips-regex
 [log_source_ips_regex: <string> | default = ""]
+
+# Optionally log requests at info level instead of debug level.
+# CLI flag: -server.log-request-at-info-level-enabled
+[log_request_at_info_level_enabled: <boolean> | default = false]
 
 # (advanced) Base path to serve all API routes from (e.g. /v1/)
 # CLI flag: -server.path-prefix
@@ -2445,6 +2469,11 @@ The `consul` block configures the consul client. The supported CLI flags `<prefi
 # (advanced) Burst size used in rate limit. Values less than 1 are treated as 1.
 # CLI flag: -<prefix>.consul.watch-burst-size
 [watch_burst_size: <int> | default = 1]
+
+# (advanced) Maximum duration to wait before retrying a Compare And Swap (CAS)
+# operation.
+# CLI flag: -<prefix>.consul.cas-retry-delay
+[cas_retry_delay: <duration> | default = 1s]
 ```
 
 ### memberlist
